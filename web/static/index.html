@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AC Charger Simulator</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="container">
+  <header class="top-bar">
+    <div class="title">AC Charger Simulator <span class="version">v0.2.0</span></div>
+    <div class="global-info">
+      <span id="global-endpoint">Endpoint: -</span>
+      <span id="global-runtime">Runtime: 0s</span>
+      <span id="global-configured">Configured: 0</span>
+      <span id="global-connected">Connected: 0</span>
+      <span id="global-charging">Charging: 0</span>
+    </div>
+    <div class="global-actions">
+      <button id="btn-set-endpoint">Set Endpoint</button>
+      <button id="btn-start-all">Start All</button>
+      <button id="btn-stop-all">Stop All</button>
+    </div>
+  </header>
+
+  <div class="main-layout">
+    <aside class="charger-list" id="charger-list">
+      <h3>Chargers</h3>
+      <div id="charger-cards"></div>
+    </aside>
+
+    <section class="charts-panel">
+      <h3>Live Charts — <span id="selected-charger-id">-</span></h3>
+      <canvas id="current-chart" width="600" height="200"></canvas>
+      <canvas id="power-chart" width="600" height="200"></canvas>
+    </section>
+
+    <aside class="control-panel">
+      <h3>Control</h3>
+      <div id="control-for" class="control-target">No charger selected</div>
+      <div class="control-group">
+        <button id="btn-connect">Connect</button>
+        <button id="btn-disconnect">Disconnect</button>
+      </div>
+      <div class="control-group">
+        <button id="btn-start">Start</button>
+        <button id="btn-stop">Stop</button>
+      </div>
+      <div class="control-group">
+        <label>Target Current (A)</label>
+        <input type="number" id="input-current" min="0" max="100" step="1" value="16">
+        <button id="btn-set-current">Set</button>
+      </div>
+      <div class="control-group">
+        <button id="btn-fault">Trigger Fault</button>
+        <button id="btn-clear-fault">Clear Fault</button>
+      </div>
+      <div class="control-group">
+        <button id="btn-profile">Switch Profile</button>
+      </div>
+    </aside>
+  </div>
+
+  <section class="event-log">
+    <h3>Event Log</h3>
+    <div id="log-container"></div>
+  </section>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

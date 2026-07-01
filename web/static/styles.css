@@ -1,0 +1,110 @@
+/* styles.css — AC Charger Simulator Web Console */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  line-height: 1.4;
+}
+.container { display: flex; flex-direction: column; height: 100vh; }
+
+.top-bar {
+  background: #16213e;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #0f3460;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.title { font-size: 1.2rem; font-weight: 600; color: #fff; }
+.version { font-size: 0.75rem; color: #888; margin-left: 6px; }
+.global-info { display: flex; gap: 16px; font-size: 0.85rem; color: #aaa; }
+.global-actions { display: flex; gap: 8px; }
+.global-actions button, .control-group button {
+  background: #0f3460;
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.global-actions button:hover, .control-group button:hover { background: #1a4a80; }
+
+.main-layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 260px 1fr 240px;
+  gap: 12px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.charger-list, .charts-panel, .control-panel {
+  background: #16213e;
+  border-radius: 6px;
+  padding: 12px;
+  overflow-y: auto;
+}
+.charger-list h3, .charts-panel h3, .control-panel h3, .event-log h3 {
+  font-size: 0.9rem;
+  color: #aaa;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #0f3460;
+  padding-bottom: 6px;
+}
+
+.charger-card {
+  background: #1a1a2e;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  border-left: 3px solid #3498db;
+  transition: background 0.2s;
+}
+.charger-card:hover { background: #1f1f3a; }
+.charger-card.active { border-left-color: #e74c3c; background: #1f1f3a; }
+.card-id { font-weight: 600; color: #fff; font-size: 0.85rem; }
+.card-state { font-size: 0.75rem; color: #888; margin-top: 2px; }
+.card-metrics { display: flex; gap: 8px; margin-top: 4px; font-size: 0.75rem; color: #ccc; }
+
+.charts-panel { display: flex; flex-direction: column; gap: 12px; }
+.charts-panel canvas { background: #1a1a2e; border-radius: 4px; width: 100%; height: 200px; }
+
+.control-panel .control-group { margin-bottom: 12px; }
+.control-panel label { display: block; font-size: 0.75rem; color: #888; margin-bottom: 4px; }
+.control-panel input {
+  width: 60px;
+  background: #1a1a2e;
+  color: #fff;
+  border: 1px solid #0f3460;
+  border-radius: 3px;
+  padding: 4px;
+  font-size: 0.8rem;
+}
+.control-target { font-size: 0.8rem; color: #ccc; margin-bottom: 10px; }
+
+.event-log {
+  background: #16213e;
+  border-radius: 6px;
+  padding: 12px;
+  max-height: 180px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#log-container {
+  overflow-y: auto;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 0.75rem;
+  color: #aaa;
+  flex: 1;
+}
+.log-line { padding: 2px 0; border-bottom: 1px solid #1a1a2e; }
+
+@media (max-width: 900px) {
+  .main-layout { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
+}
