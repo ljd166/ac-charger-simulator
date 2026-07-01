@@ -98,20 +98,24 @@ func TestHandleSetEndpoint(t *testing.T) {
 }
 
 func TestHandleTargetCurrent(t *testing.T) {
-	server, _, _ := newTestServer()
+	server, mgr, _ := newTestServer()
 	body := bytes.NewBufferString(`{"current_a":16}`)
 	req := httptest.NewRequest("POST", "/api/chargers/TEST-001/target-current", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK && w.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected status %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	c, _ := mgr.GetCharger("TEST-001")
+	if c.TargetCurrentA() != 16 {
+		t.Fatalf("expected target current 16A, got %f", c.TargetCurrentA())
 	}
 }
 
 func TestHandleFault(t *testing.T) {
-	server, _, _ := newTestServer()
+	server, mgr, _ := newTestServer()
 	body := bytes.NewBufferString(`{"code":"EarthFailure"}`)
 	req := httptest.NewRequest("POST", "/api/chargers/TEST-001/fault", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -120,6 +124,10 @@ func TestHandleFault(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	c, _ := mgr.GetCharger("TEST-001")
+	if c.Status() != charger.Faulted {
+		t.Fatalf("expected status Faulted, got %s", c.Status())
 	}
 }
 
