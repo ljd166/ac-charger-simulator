@@ -162,7 +162,7 @@ function setupControls() {
   };
   document.getElementById('btn-profile').onclick = async () => {
     if (!selectedId) return alert('Select a charger first');
-    const profile = prompt('Enter profile name:', 'default');
+    const profile = prompt('Supported profiles: default, ramp_up', 'default');
     if (!profile) return;
     await post(`/api/chargers/${selectedId}/profile`, { profile });
   };
