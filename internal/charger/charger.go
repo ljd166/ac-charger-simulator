@@ -58,6 +58,7 @@ type Charger struct {
 	profileStart   time.Time
 
 	conn        *websocket.Conn
+	writeMu     sync.Mutex
 	sendCh      chan []byte
 	stopCh      chan struct{}
 	heartbeatInterval time.Duration
@@ -160,10 +161,12 @@ func (c *Charger) Disconnect() {
 }
 
 func (c *Charger) disconnectLocked() {
+	c.writeMu.Lock()
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
 	}
+	c.writeMu.Unlock()
 	close(c.stopCh)
 	c.stopCh = make(chan struct{})
 	oldState := c.connectionState
@@ -478,14 +481,14 @@ func (c *Charger) writeLoop() {
 		case <-c.stopCh:
 			return
 		case msg := <-c.sendCh:
-			c.mu.RLock()
+			c.writeMu.Lock()
 			conn := c.conn
-			c.mu.RUnlock()
 			if conn != nil {
 				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 					log.Printf("[%s] write error: %v", c.config.ID, err)
 				}
 			}
+			c.writeMu.Unlock()
 		}
 	}
 }
