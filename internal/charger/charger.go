@@ -104,6 +104,9 @@ func NewCharger(cfg config.ChargerConfig) *Charger {
 	if cfg.Phase == "three" {
 		phaseCount = 3
 	}
+	if cfg.MeterIntervalSec <= 0 {
+		cfg.MeterIntervalSec = 5
+	}
 	c := &Charger{
 		config:            cfg,
 		meter:             meter.NewModel(phaseCount, cfg.VoltageV, cfg.PowerFactor, cfg.MaxCurrentA),
@@ -179,6 +182,9 @@ func (c *Charger) Start() error {
 	}
 	if c.connectionState != Connected {
 		return fmt.Errorf("not connected")
+	}
+	if c.startPending {
+		return fmt.Errorf("start already pending")
 	}
 
 	c.startPending = true
@@ -354,6 +360,7 @@ func (c *Charger) run() {
 	c.connectionState = Connected
 	c.emitStateChange(Connecting, Connected)
 	c.emitEvent("connect", fmt.Sprintf("connected to %s", c.config.Endpoint))
+	hbInterval := c.heartbeatInterval
 	c.mu.Unlock()
 
 	go c.readLoop()
@@ -364,7 +371,7 @@ func (c *Charger) run() {
 	c.sendStatusNotification()
 
 	// 定时器
-	hbTicker := time.NewTicker(c.heartbeatInterval)
+	hbTicker := time.NewTicker(hbInterval)
 	defer hbTicker.Stop()
 	meterTicker := time.NewTicker(time.Duration(c.config.MeterIntervalSec) * time.Second)
 	defer meterTicker.Stop()
@@ -755,8 +762,13 @@ func (c *Charger) handleCallResult(frame *ocpp16.Frame) {
 	}
 
 	// Authorize
-	if frame.UniqueID == c.pendingAuthorizeMsgID {
+	c.mu.Lock()
+	isAuth := frame.UniqueID == c.pendingAuthorizeMsgID
+	if isAuth {
 		c.pendingAuthorizeMsgID = ""
+	}
+	c.mu.Unlock()
+	if isAuth {
 		var authConf ocpp16.AuthorizeConf
 		if err := ocpp16.ParsePayload(frame.Payload, &authConf); err == nil && authConf.IDTagInfo.Status == "Accepted" {
 			c.mu.Lock()
@@ -775,8 +787,13 @@ func (c *Charger) handleCallResult(frame *ocpp16.Frame) {
 	}
 
 	// StartTransaction
-	if frame.UniqueID == c.pendingStartMsgID {
+	c.mu.Lock()
+	isStart := frame.UniqueID == c.pendingStartMsgID
+	if isStart {
 		c.pendingStartMsgID = ""
+	}
+	c.mu.Unlock()
+	if isStart {
 		var startConf ocpp16.StartTransactionConf
 		if err := ocpp16.ParsePayload(frame.Payload, &startConf); err == nil && startConf.IDTagInfo.Status == "Accepted" {
 			c.mu.Lock()
