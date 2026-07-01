@@ -1,0 +1,4 @@
+/simulator
+/bin/
+*.log
+.DS_Store

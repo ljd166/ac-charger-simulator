@@ -1,0 +1,26 @@
+web_console:
+  enabled: true
+  bind_addr: "127.0.0.1"
+  port: 8088
+  history_window_sec: 600
+chargers:
+  - id: "SIM-AC-001"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-001"
+    id_tag: "TEST-CARD-001"
+    phase: "single"
+    phase_assignment: "L1"
+    max_current_a: 32
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5
+  - id: "SIM-AC-002"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-002"
+    id_tag: "TEST-CARD-002"
+    phase: "three"
+    phase_assignment: "L1L2L3"
+    max_current_a: 16
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5

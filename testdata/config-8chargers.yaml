@@ -1,0 +1,86 @@
+web_console:
+  enabled: true
+  bind_addr: "127.0.0.1"
+  port: 8088
+  history_window_sec: 600
+chargers:
+  - id: "SIM-AC-001"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-001"
+    id_tag: "TEST-CARD-001"
+    phase: "single"
+    phase_assignment: "L1"
+    max_current_a: 32
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5
+  - id: "SIM-AC-002"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-002"
+    id_tag: "TEST-CARD-002"
+    phase: "three"
+    phase_assignment: "L1L2L3"
+    max_current_a: 16
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5
+  - id: "SIM-AC-003"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-003"
+    id_tag: "TEST-CARD-003"
+    phase: "single"
+    phase_assignment: "L2"
+    max_current_a: 32
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5
+  - id: "SIM-AC-004"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-004"
+    id_tag: "TEST-CARD-004"
+    phase: "three"
+    phase_assignment: "L1L2L3"
+    max_current_a: 16
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5
+  - id: "SIM-AC-005"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-005"
+    id_tag: "TEST-CARD-005"
+    phase: "single"
+    phase_assignment: "L1"
+    max_current_a: 32
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5
+  - id: "SIM-AC-006"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-006"
+    id_tag: "TEST-CARD-006"
+    phase: "three"
+    phase_assignment: "L1L2L3"
+    max_current_a: 16
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5
+  - id: "SIM-AC-007"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-007"
+    id_tag: "TEST-CARD-007"
+    phase: "single"
+    phase_assignment: "L2"
+    max_current_a: 32
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5
+  - id: "SIM-AC-008"
+    connector_id: 1
+    endpoint: "ws://127.0.0.1:9000/ocpp/SIM-AC-008"
+    id_tag: "TEST-CARD-008"
+    phase: "three"
+    phase_assignment: "L1L2L3"
+    max_current_a: 16
+    voltage_v: 230
+    power_factor: 0.98
+    meter_interval_sec: 5
