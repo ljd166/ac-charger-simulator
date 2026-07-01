@@ -54,11 +54,18 @@ type Charger struct {
 	powerKW        float64
 	energyKWh      float64
 	soc            float64
+	profile        string
+	profileStart   time.Time
 
 	conn        *websocket.Conn
 	sendCh      chan []byte
 	stopCh      chan struct{}
 	heartbeatInterval time.Duration
+
+	// OCPP 待处理消息 ID
+	pendingAuthorizeMsgID string
+	pendingStartMsgID     string
+	startPending          bool
 
 	// 事件回调
 	onStateChange func(id string, oldState, newState string)
@@ -174,15 +181,13 @@ func (c *Charger) Start() error {
 		return fmt.Errorf("not connected")
 	}
 
+	c.startPending = true
 	c.setStatus(Preparing)
 	c.sendStatusNotification()
 	
-	c.transactionID = int(time.Now().Unix())
-	c.meter.ResetEnergy()
-	c.setStatus(Charging)
-	c.sendStartTransaction()
-	c.sendStatusNotification()
-	c.emitEvent("start", fmt.Sprintf("transaction started: txID=%d", c.transactionID))
+	// 发送 Authorize，等待 CSMS 确认后再发送 StartTransaction
+	c.sendAuthorize()
+	c.emitEvent("start", "Authorize sent, waiting for CSMS response")
 	return nil
 }
 
@@ -311,9 +316,9 @@ func (c *Charger) emitStateChange(oldState, newState ConnectionState) {
 	}
 }
 
-func (c *Charger) emitTelemetry() {
+func (c *Charger) emitTelemetry(snap Telemetry) {
 	if c.onTelemetry != nil {
-		c.onTelemetry(c.config.ID, c.Snapshot())
+		c.onTelemetry(c.config.ID, snap)
 	}
 }
 
@@ -380,8 +385,9 @@ func (c *Charger) run() {
 			c.mu.Unlock()
 		case <-updateTicker.C:
 			c.mu.Lock()
+			now := time.Now()
 			if c.status == Charging {
-				c.meter.Update(time.Now())
+				c.meter.Update(now)
 				ms := c.meter.Snapshot()
 				c.actualCurrentA = ms.ActualCurrentA
 				c.powerKW = ms.PowerKW
@@ -393,9 +399,36 @@ func (c *Charger) run() {
 						c.soc = 100
 					}
 				}
+				// profile 最小实现：ramp_up 每 30 秒增加 2A
+				if c.profile == "ramp_up" && !c.profileStart.IsZero() {
+					elapsed := now.Sub(c.profileStart).Seconds()
+					ramp := 5.0 + float64(int(elapsed)/30)*2.0
+					if ramp > c.config.MaxCurrentA {
+						ramp = c.config.MaxCurrentA
+					}
+					c.targetCurrentA = ramp
+					c.meter.SetTargetCurrent(ramp)
+				}
 			}
-			c.emitTelemetry()
+			// 在锁内直接构建快照，避免调用 Snapshot() 导致的 RLock 重入死锁
+			snap := Telemetry{
+				Timestamp:       now,
+				ConnectionState: c.connectionState,
+				Status:          c.status,
+				TransactionID:   c.transactionID,
+				TargetCurrentA:  c.targetCurrentA,
+				ActualCurrentA:  c.actualCurrentA,
+				PowerKW:         c.powerKW,
+				EnergyKWh:       c.energyKWh,
+				SOC:             c.soc,
+				FaultCode:       c.faultCode,
+				PhaseCount:      c.meterPhaseCount(),
+				VoltageV:        c.config.VoltageV,
+				MaxCurrentA:     c.config.MaxCurrentA,
+				PhaseAssignment: c.config.PhaseAssignment,
+			}
 			c.mu.Unlock()
+			c.emitTelemetry(snap)
 		}
 	}
 }
@@ -450,12 +483,18 @@ func (c *Charger) writeLoop() {
 	}
 }
 
-func (c *Charger) send(msg interface{}) {
-	data, err := json.Marshal(msg)
+// sendJSON 发送 JSON 对象（经过 json.Marshal）
+func (c *Charger) sendJSON(v interface{}) {
+	data, err := json.Marshal(v)
 	if err != nil {
 		log.Printf("[%s] marshal error: %v", c.config.ID, err)
 		return
 	}
+	c.sendRaw(data)
+}
+
+// sendRaw 发送原始字节到 sendCh
+func (c *Charger) sendRaw(data []byte) {
 	select {
 	case c.sendCh <- data:
 	default:
@@ -469,7 +508,7 @@ func (c *Charger) sendFrame(frame *ocpp16.Frame) {
 		log.Printf("[%s] marshal frame error: %v", c.config.ID, err)
 		return
 	}
-	c.send(data)
+	c.sendRaw(data)
 	c.emitEvent("ocpp_tx", frame.String())
 }
 
@@ -540,7 +579,24 @@ func (c *Charger) sendHeartbeat() {
 	c.sendFrame(frame)
 }
 
+func (c *Charger) sendAuthorize() {
+	payload := ocpp16.AuthorizeReq{
+		IDTag: c.config.IDTag,
+	}
+	payloadBytes, _ := ocpp16.BuildPayload(payload)
+	msgID := fmt.Sprintf("auth-%s-%d", c.config.ID, time.Now().Unix())
+	c.pendingAuthorizeMsgID = msgID
+	frame := &ocpp16.Frame{
+		MessageTypeID: ocpp16.Call,
+		UniqueID:      msgID,
+		Action:        "Authorize",
+		Payload:       payloadBytes,
+	}
+	c.sendFrame(frame)
+}
+
 func (c *Charger) sendStartTransaction() {
+	c.meter.ResetEnergy()
 	payload := ocpp16.StartTransactionReq{
 		ConnectorID: c.config.ConnectorID,
 		IDTag:       c.config.IDTag,
@@ -548,9 +604,11 @@ func (c *Charger) sendStartTransaction() {
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
 	payloadBytes, _ := ocpp16.BuildPayload(payload)
+	msgID := fmt.Sprintf("start-%s-%d", c.config.ID, time.Now().Unix())
+	c.pendingStartMsgID = msgID
 	frame := &ocpp16.Frame{
 		MessageTypeID: ocpp16.Call,
-		UniqueID:      fmt.Sprintf("start-%s-%d", c.config.ID, time.Now().Unix()),
+		UniqueID:      msgID,
 		Action:        "StartTransaction",
 		Payload:       payloadBytes,
 	}
@@ -684,6 +742,7 @@ func (c *Charger) handleMessage(data []byte) {
 }
 
 func (c *Charger) handleCallResult(frame *ocpp16.Frame) {
+	// BootNotification
 	var bootConf ocpp16.BootNotificationConf
 	if err := ocpp16.ParsePayload(frame.Payload, &bootConf); err == nil && bootConf.Status == "Accepted" {
 		c.mu.Lock()
@@ -692,6 +751,50 @@ func (c *Charger) handleCallResult(frame *ocpp16.Frame) {
 		}
 		c.mu.Unlock()
 		c.emitEvent("boot", fmt.Sprintf("BootNotification accepted, interval=%ds", bootConf.Interval))
+		return
+	}
+
+	// Authorize
+	if frame.UniqueID == c.pendingAuthorizeMsgID {
+		c.pendingAuthorizeMsgID = ""
+		var authConf ocpp16.AuthorizeConf
+		if err := ocpp16.ParsePayload(frame.Payload, &authConf); err == nil && authConf.IDTagInfo.Status == "Accepted" {
+			c.mu.Lock()
+			c.sendStartTransaction()
+			c.mu.Unlock()
+			c.emitEvent("start", "Authorize accepted, StartTransaction sent")
+		} else {
+			c.mu.Lock()
+			c.startPending = false
+			c.setStatus(Available)
+			c.sendStatusNotification()
+			c.mu.Unlock()
+			c.emitEvent("start", "Authorize rejected, transaction cancelled")
+		}
+		return
+	}
+
+	// StartTransaction
+	if frame.UniqueID == c.pendingStartMsgID {
+		c.pendingStartMsgID = ""
+		var startConf ocpp16.StartTransactionConf
+		if err := ocpp16.ParsePayload(frame.Payload, &startConf); err == nil && startConf.IDTagInfo.Status == "Accepted" {
+			c.mu.Lock()
+			c.transactionID = startConf.TransactionID
+			c.startPending = false
+			c.setStatus(Charging)
+			c.sendStatusNotification()
+			c.mu.Unlock()
+			c.emitEvent("start", fmt.Sprintf("StartTransaction accepted, txID=%d", c.transactionID))
+		} else {
+			c.mu.Lock()
+			c.startPending = false
+			c.setStatus(Available)
+			c.sendStatusNotification()
+			c.mu.Unlock()
+			c.emitEvent("start", "StartTransaction rejected, transaction cancelled")
+		}
+		return
 	}
 }
 
@@ -881,6 +984,8 @@ func (c *Charger) SOC() float64 {
 func (c *Charger) SetProfile(profile string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.profile = profile
+	c.profileStart = time.Now()
 	c.emitEvent("profile", fmt.Sprintf("profile switched to %s", profile))
 }
 
