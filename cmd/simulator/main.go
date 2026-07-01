@@ -36,7 +36,9 @@ func main() {
 	if *web && cfg.WebConsole.Enabled {
 		addr := fmt.Sprintf("%s:%d", cfg.WebConsole.BindAddr, cfg.WebConsole.Port)
 		ws = webconsole.NewServer(addr, mgr, hub)
-		ws.Start()
+		if err := ws.Start(); err != nil {
+			log.Fatalf("[FATAL] web console: %v", err)
+		}
 		log.Printf("[INIT] Web Console: http://%s", addr)
 	}
 

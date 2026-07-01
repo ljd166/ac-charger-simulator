@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -71,13 +72,18 @@ func NewServer(addr string, mgr Manager, hub *telemetry.Hub) *Server {
 }
 
 // Start 启动服务器
-func (s *Server) Start() {
+func (s *Server) Start() error {
+	listener, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", s.addr, err)
+	}
 	log.Printf("[WebConsole] starting on http://%s", s.addr)
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Printf("[WebConsole] server error: %v", err)
 		}
 	}()
+	return nil
 }
 
 // Stop 停止服务器
@@ -115,13 +121,24 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	state := s.hub.GlobalState(s.mgr.GetEndpoint(), len(chargers), connected, charging)
+	
+	// 优先取 hub telemetry，没有则 fallback 到 Snapshot()
 	latest := s.hub.Latest()
+	chargerData := make(map[string]interface{}, len(chargers))
+	for _, c := range chargers {
+		id := c.ID()
+		if snap, ok := latest[id]; ok {
+			chargerData[id] = snap
+		} else {
+			chargerData[id] = c.Snapshot()
+		}
+	}
 	
 	writeJSON(w, http.StatusOK, response{
 		Success: true,
 		Data: map[string]interface{}{
 			"global":   state,
-			"chargers": latest,
+			"chargers": chargerData,
 			"events":   s.hub.Events(50),
 		},
 	})
