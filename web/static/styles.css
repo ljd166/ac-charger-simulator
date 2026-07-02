@@ -156,6 +156,13 @@ body {
   background-image: linear-gradient(90deg, #1f9d61, #2fd27d 60%, #66f0a8),
     repeating-linear-gradient(45deg, rgba(255,255,255,.12) 0 8px, transparent 8px 16px); }
 .soc-num { font-size: 14px; font-weight: 650; min-width: 52px; text-align: right; color: var(--green); }
+.soc-target {
+  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  background: var(--amber); opacity: .85; border-radius: 1px;
+  box-shadow: 0 0 6px rgba(255,176,32,.6);
+}
+.soc-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-faint); margin-top: -6px; }
+.soc-meta .eta { color: var(--cyan); }
 
 /* 曲线 */
 .chart-wrap { position: relative; }

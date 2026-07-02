@@ -25,6 +25,19 @@ type Model struct {
 	lastUpdate time.Time
 	paused    bool
 	pauseReason string
+
+	// timeScale 时间倍率(默认 1.0 真实速度;>1 加速能量累计与电流收敛,台架观察用)
+	timeScale float64
+}
+
+// SetTimeScale 设置时间倍率(<=0 视为 1.0)
+func (m *Model) SetTimeScale(scale float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if scale <= 0 {
+		scale = 1.0
+	}
+	m.timeScale = scale
 }
 
 // NewModel 创建新电表模型
@@ -83,6 +96,9 @@ func (m *Model) Update(now time.Time) (actualCurrentA, powerKW float64) {
 		return m.actualCurrentA, m.getPower()
 	}
 	m.lastUpdate = now
+	if m.timeScale > 1 {
+		delta *= m.timeScale
+	}
 
 	if m.paused {
 		// 电流收敛到 0
@@ -160,4 +176,12 @@ func (m *Model) ResetEnergy() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.energyKWh = 0
+}
+
+// ZeroFlow 立即归零电流/功率(停充/拔枪;Update 仅在充电时驱动,不归零会残留假功率)
+func (m *Model) ZeroFlow() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.actualCurrentA = 0
+	m.currentL1, m.currentL2, m.currentL3 = 0, 0, 0
 }

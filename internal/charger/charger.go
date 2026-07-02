@@ -72,6 +72,12 @@ type Charger struct {
 	manualStop     bool
 	reconnectDelay time.Duration
 
+	// 电池模型:SOC 由充电能量物理驱动(soc += ΔE×效率/容量)
+	batteryCapacityKWh float64
+	targetSOC          float64
+	socEnergyBase      float64 // 上次 SOC 结算时的桩表累计电量(kWh)
+	fullStopSent       bool    // 到达目标 SOC 的自动停充只触发一次
+
 	// 事件回调
 	onStateChange func(id string, oldState, newState string)
 	onTelemetry   func(id string, snap Telemetry)
@@ -94,6 +100,8 @@ type Telemetry struct {
 	VoltageV            float64         `json:"voltage_v"`
 	MaxCurrentA         float64         `json:"max_current_a"`
 	PhaseAssignment     string          `json:"phase_assignment"`
+	BatteryCapacityKWh  float64         `json:"battery_capacity_kwh"`
+	TargetSOC           float64         `json:"target_soc"`
 }
 
 // Event 事件日志条目
@@ -112,20 +120,68 @@ func NewCharger(cfg config.ChargerConfig) *Charger {
 	if cfg.MeterIntervalSec <= 0 {
 		cfg.MeterIntervalSec = 5
 	}
-	c := &Charger{
-		config:            cfg,
-		meter:             meter.NewModel(phaseCount, cfg.VoltageV, cfg.PowerFactor, cfg.MaxCurrentA),
-		connectionState:   Disconnected,
-		status:            Available,
-		faultCode:         "NoError",
-		soc:               20.0,
-		stopCh:            make(chan struct{}),
-		sendCh:            make(chan []byte, 10),
-		heartbeatInterval: 60 * time.Second,
+	// 电池模型默认值
+	capacity := cfg.BatteryCapacityKWh
+	if capacity <= 0 {
+		capacity = 55.0 // Tesla Model 3 SR
 	}
+	initialSOC := cfg.InitialSOC
+	if initialSOC <= 0 || initialSOC > 100 {
+		initialSOC = 20.0
+	}
+	targetSOC := cfg.TargetSOC
+	if targetSOC <= 0 || targetSOC > 100 {
+		targetSOC = 90.0
+	}
+
+	c := &Charger{
+		config:             cfg,
+		meter:              meter.NewModel(phaseCount, cfg.VoltageV, cfg.PowerFactor, cfg.MaxCurrentA),
+		connectionState:    Disconnected,
+		status:             Available,
+		faultCode:          "NoError",
+		soc:                initialSOC,
+		batteryCapacityKWh: capacity,
+		targetSOC:          targetSOC,
+		stopCh:             make(chan struct{}),
+		sendCh:             make(chan []byte, 10),
+		heartbeatInterval:  60 * time.Second,
+	}
+	c.meter.SetTimeScale(cfg.TimeScale)
 	c.targetCurrentA = cfg.MaxCurrentA
 	c.meter.SetTargetCurrent(cfg.MaxCurrentA)
 	return c
+}
+
+// chargeEfficiency 桩表→电池的充电效率(AC 车载充电机损耗)
+const chargeEfficiency = 0.92
+
+// taperCurrentCap CC-CV 锥形:SOC≥80% 后电流上限线性锥减(80%→满 100%→10%,下限 6A)
+func (c *Charger) taperCurrentCap() float64 {
+	if c.soc < 80 {
+		return c.config.MaxCurrentA
+	}
+	frac := 1.0 - (c.soc-80.0)/20.0*0.9 // 80%:1.0 → 100%:0.1
+	cap := c.config.MaxCurrentA * frac
+	if cap < 6.0 {
+		cap = 6.0
+	}
+	return cap
+}
+
+// SetSOC 直接设定电池 SOC(测试复位用),并重置能量结算基准
+func (c *Charger) SetSOC(soc float64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if soc < 0 {
+		soc = 0
+	}
+	if soc > 100 {
+		soc = 100
+	}
+	c.soc = soc
+	c.socEnergyBase = c.meter.Snapshot().EnergyKWh
+	c.emitEvent("config", fmt.Sprintf("SOC reset to %.1f%%", soc))
 }
 
 // ID 返回桩 ID
@@ -225,9 +281,10 @@ func (c *Charger) Start() error {
 	}
 
 	c.startPending = true
+	c.fullStopSent = false // 新一次充电,重置"充满自动停"标志
 	c.setStatus(Preparing)
 	c.sendStatusNotification()
-	
+
 	// 发送 Authorize，等待 CSMS 确认后再发送 StartTransaction
 	c.sendAuthorize()
 	c.emitEvent("start", "Authorize sent, waiting for CSMS response")
@@ -250,6 +307,10 @@ func (c *Charger) Stop() error {
 	c.setStatus(Finishing)
 	c.sendStatusNotification()
 	c.transactionID = 0
+	// 停充即断流:归零电流/功率,避免残留假读数
+	c.meter.ZeroFlow()
+	c.actualCurrentA = 0
+	c.powerKW = 0
 	c.setStatus(Available)
 	c.sendStatusNotification()
 	c.emitEvent("stop", "transaction stopped")
@@ -335,6 +396,8 @@ func (c *Charger) Snapshot() Telemetry {
 		VoltageV:        c.config.VoltageV,
 		MaxCurrentA:     c.config.MaxCurrentA,
 		PhaseAssignment: c.config.PhaseAssignment,
+		BatteryCapacityKWh: c.batteryCapacityKWh,
+		TargetSOC:          c.targetSOC,
 	}
 }
 
@@ -446,19 +509,28 @@ func (c *Charger) run() {
 		case <-updateTicker.C:
 			c.mu.Lock()
 			now := time.Now()
+			batteryFull := false
 			if c.status == Charging {
 				c.meter.Update(now)
 				ms := c.meter.Snapshot()
 				c.actualCurrentA = ms.ActualCurrentA
 				c.powerKW = ms.PowerKW
 				c.energyKWh = ms.EnergyKWh
-				// 模拟 SOC 增长
-				if c.powerKW > 0 {
-					c.soc += (c.powerKW / 1000.0) * (1.0 / 60.0) // 简单估算
+
+				// 电池模型:SOC 由桩表能量增量物理驱动
+				// soc += ΔE(kWh) × 充电效率 / 容量 × 100
+				if ms.EnergyKWh < c.socEnergyBase {
+					// 桩表被 ResetEnergy(新交易),重置结算基准
+					c.socEnergyBase = ms.EnergyKWh
+				}
+				if deltaE := ms.EnergyKWh - c.socEnergyBase; deltaE > 0 {
+					c.soc += deltaE * chargeEfficiency / c.batteryCapacityKWh * 100.0
+					c.socEnergyBase = ms.EnergyKWh
 					if c.soc > 100 {
 						c.soc = 100
 					}
 				}
+
 				// profile 最小实现：ramp_up 每 30 秒增加 2A
 				if c.profile == "ramp_up" && !c.profileStart.IsZero() {
 					elapsed := now.Sub(c.profileStart).Seconds()
@@ -467,7 +539,20 @@ func (c *Charger) run() {
 						ramp = c.config.MaxCurrentA
 					}
 					c.targetCurrentA = ramp
-					c.meter.SetTargetCurrent(ramp)
+				}
+
+				// CC-CV 锥形:SOC≥80% 后电流上限锥减(真车行为);
+				// 实际下发 = min(用户/LB 目标, 锥形上限),不覆盖 targetCurrentA 意图
+				eff := c.targetCurrentA
+				if cap := c.taperCurrentCap(); eff > cap {
+					eff = cap
+				}
+				c.meter.SetTargetCurrent(eff)
+
+				// 到达目标 SOC → 自动停充(仿真真车充满,只触发一次)
+				if c.soc >= c.targetSOC && !c.fullStopSent {
+					c.fullStopSent = true
+					batteryFull = true
 				}
 			}
 			// 在锁内直接构建快照，避免调用 Snapshot() 导致的 RLock 重入死锁
@@ -486,9 +571,16 @@ func (c *Charger) run() {
 				VoltageV:        c.config.VoltageV,
 				MaxCurrentA:     c.config.MaxCurrentA,
 				PhaseAssignment: c.config.PhaseAssignment,
+				BatteryCapacityKWh: c.batteryCapacityKWh,
+				TargetSOC:          c.targetSOC,
 			}
 			c.mu.Unlock()
 			c.emitTelemetry(snap)
+			if batteryFull {
+				// 锁外调用 Stop(内部自行加锁),避免重入死锁
+				c.emitEvent("stop", fmt.Sprintf("battery reached target SOC %.0f%%, stopping charge", snap.TargetSOC))
+				go c.Stop()
+			}
 		}
 	}
 }

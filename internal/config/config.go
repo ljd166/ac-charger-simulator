@@ -33,6 +33,12 @@ type ChargerConfig struct {
 	VoltageV          float64 `yaml:"voltage_v"`
 	PowerFactor       float64 `yaml:"power_factor"`
 	MeterIntervalSec  int     `yaml:"meter_interval_sec"`
+
+	// 电池模型(SOC 由充电能量物理驱动)
+	BatteryCapacityKWh float64 `yaml:"battery_capacity_kwh"` // 默认 55(Model 3 SR)
+	InitialSOC         float64 `yaml:"initial_soc"`          // 默认 20(%)
+	TargetSOC          float64 `yaml:"target_soc"`           // 默认 90(%);到达自动停充(仿真真车行为)
+	TimeScale          float64 `yaml:"time_scale"`           // 默认 1.0 真实速度;>1 加速电池动态与计量(台架观察用)
 }
 
 // DefaultWebConsole 返回默认 Web Console 配置

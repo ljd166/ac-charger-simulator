@@ -80,6 +80,10 @@ function makeCard(id, snap) {
           const v = parseFloat(refs['limit-num'].value);
           await api(`/api/chargers/${id}/target-current`, 'POST', { current_a: v });
           toast(`${id} 限流 → ${v}A`);
+        } else if (act === 'setsoc') {
+          const v = parseFloat(refs['soc-num-input'].value);
+          await api(`/api/chargers/${id}/soc`, 'POST', { soc: v });
+          toast(`${id} SOC → ${v}%`);
         }
       } catch (e) { toast(id + ': ' + e.message, true); }
       btn.disabled = false;
@@ -138,6 +142,20 @@ function updateCard(id, snap) {
   r.soc.textContent = soc.toFixed(1) + '%';
   r['soc-fill'].style.width = Math.min(100, soc) + '%';
   r['soc-fill'].classList.toggle('charging', st === 'Charging');
+
+  // 电池信息 + 目标线 + 预计时间(SOC 由充电能量物理驱动)
+  const cap = snap.battery_capacity_kwh || 0, tgt = snap.target_soc || 0;
+  if (tgt > 0) r['soc-target'].style.left = Math.min(100, tgt) + '%';
+  r['battery-info'].textContent = cap ? `电池 ${cap}kWh · 目标 ${tgt}% · 效率92%` : '';
+  if (st === 'Charging' && (snap.power_kw || 0) > 0.05 && tgt > soc) {
+    const hours = ((tgt - soc) / 100 * cap) / ((snap.power_kw) * 0.92);
+    const mins = Math.round(hours * 60);
+    r.eta.textContent = '⏱ 预计 ' + (mins >= 90 ? (hours.toFixed(1) + ' 小时') : (mins + ' 分钟')) + '充至目标';
+  } else if (st === 'Charging' && soc >= tgt) {
+    r.eta.textContent = '已达目标,即将自动停充';
+  } else {
+    r.eta.textContent = '';
+  }
 
   // 连接按钮文案
   const connBtn = card.el.querySelector('[data-act="conn"]');

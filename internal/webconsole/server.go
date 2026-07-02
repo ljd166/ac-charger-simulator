@@ -56,6 +56,7 @@ func NewServer(addr string, mgr Manager, hub *telemetry.Hub) *Server {
 	api.HandleFunc("/chargers/{id}/fault", s.handleFault).Methods("POST")
 	api.HandleFunc("/chargers/{id}/profile", s.handleProfile).Methods("POST")
 	api.HandleFunc("/chargers/{id}/history", s.handleHistory).Methods("GET")
+	api.HandleFunc("/chargers/{id}/soc", s.handleSetSOC).Methods("POST")
 	api.HandleFunc("/chargers/all/start", s.handleAllStart).Methods("POST")
 	api.HandleFunc("/chargers/all/stop", s.handleAllStop).Methods("POST")
 	
@@ -276,6 +277,26 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	c.SetProfile(req.Profile)
 	writeJSON(w, http.StatusOK, response{Success: true, Message: "profile set"})
+}
+
+// handleSetSOC 直接设定电池 SOC(测试复位用)
+func (s *Server) handleSetSOC(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	c, ok := s.mgr.GetCharger(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, response{Success: false, Message: "charger not found"})
+		return
+	}
+	var req struct {
+		SOC float64 `json:"soc"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, response{Success: false, Message: err.Error()})
+		return
+	}
+	c.SetSOC(req.SOC)
+	writeJSON(w, http.StatusOK, response{Success: true, Message: "soc set"})
 }
 
 // handleHistory 返回单桩近期遥测历史(图表回填用)

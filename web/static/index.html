@@ -87,8 +87,15 @@
 
     <div class="soc-row">
       <span class="mlabel">车辆 SOC</span>
-      <div class="soc-bar"><div class="soc-fill" data-el="soc-fill"></div></div>
+      <div class="soc-bar">
+        <div class="soc-fill" data-el="soc-fill"></div>
+        <div class="soc-target" data-el="soc-target" title="目标 SOC"></div>
+      </div>
       <span class="mono soc-num" data-el="soc">-</span>
+    </div>
+    <div class="soc-meta">
+      <span data-el="battery-info">-</span>
+      <span class="eta" data-el="eta"></span>
     </div>
 
     <div class="chart-wrap">
@@ -127,6 +134,11 @@
           <option value="EVCommunicationError">车桩通信</option>
           <option value="InternalError">内部错误</option>
         </select>
+      </div>
+      <div class="ctl-group">
+        <label>SOC重置</label>
+        <input type="number" min="0" max="100" step="1" value="20" class="mono" data-el="soc-num-input">
+        <button class="btn small" data-act="setsoc">置位</button>
       </div>
     </div>
   </article>
