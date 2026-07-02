@@ -3,70 +3,134 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AC Charger Simulator</title>
+<title>AC 充电桩仿真台</title>
 <link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 </head>
 <body>
-<div class="container">
-  <header class="top-bar">
-    <div class="title">AC Charger Simulator <span class="version">v0.2.0</span></div>
-    <div class="global-info">
-      <span id="global-endpoint">Endpoint: -</span>
-      <span id="global-runtime">Runtime: 0s</span>
-      <span id="global-configured">Configured: 0</span>
-      <span id="global-connected">Connected: 0</span>
-      <span id="global-charging">Charging: 0</span>
+<div class="app">
+
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="bolt">⚡</span>
+      <div>
+        <h1>AC 充电桩仿真台</h1>
+        <div class="sub">EU AC Wallbox Simulator <span id="version">v0.3.0</span></div>
+      </div>
+    </div>
+    <div class="global-stats">
+      <div class="gstat"><span class="glabel">CSMS</span><span class="gval mono" id="g-endpoint" title="">-</span></div>
+      <div class="gstat"><span class="glabel">在线</span><span class="gval" id="g-connected">-</span></div>
+      <div class="gstat"><span class="glabel">充电中</span><span class="gval" id="g-charging">-</span></div>
+      <div class="gstat"><span class="glabel">总功率</span><span class="gval mono" id="g-power">-</span></div>
+      <div class="gstat"><span class="glabel">运行</span><span class="gval mono" id="g-runtime">-</span></div>
+      <div class="gstat"><span class="glabel">实时链路</span><span class="wsdot" id="ws-dot" title="WebSocket 状态"></span></div>
     </div>
     <div class="global-actions">
-      <button id="btn-set-endpoint">Set Endpoint</button>
-      <button id="btn-start-all">Start All</button>
-      <button id="btn-stop-all">Stop All</button>
+      <button class="btn primary" id="btn-all-start">▶ 全部启动</button>
+      <button class="btn danger-outline" id="btn-all-stop">■ 全部停止</button>
     </div>
   </header>
 
-  <div class="main-layout">
-    <aside class="charger-list" id="charger-list">
-      <h3>Chargers</h3>
-      <div id="charger-cards"></div>
-    </aside>
+  <!-- 桩卡片区(JS 渲染) -->
+  <main class="grid" id="charger-grid"></main>
 
-    <section class="charts-panel">
-      <h3>Live Charts — <span id="selected-charger-id">-</span></h3>
-      <canvas id="current-chart" width="600" height="200"></canvas>
-      <canvas id="power-chart" width="600" height="200"></canvas>
-    </section>
-
-    <aside class="control-panel">
-      <h3>Control</h3>
-      <div id="control-for" class="control-target">No charger selected</div>
-      <div class="control-group">
-        <button id="btn-connect">Connect</button>
-        <button id="btn-disconnect">Disconnect</button>
+  <!-- 事件流 -->
+  <section class="events-panel">
+    <div class="events-head">
+      <h2>事件流</h2>
+      <div class="events-filters" id="event-filters">
+        <button class="chip active" data-filter="all">全部</button>
       </div>
-      <div class="control-group">
-        <button id="btn-start">Start</button>
-        <button id="btn-stop">Stop</button>
-      </div>
-      <div class="control-group">
-        <label>Target Current (A)</label>
-        <input type="number" id="input-current" min="0" max="100" step="1" value="16">
-        <button id="btn-set-current">Set</button>
-      </div>
-      <div class="control-group">
-        <button id="btn-fault">Trigger Fault</button>
-        <button id="btn-clear-fault">Clear Fault</button>
-      </div>
-      <div class="control-group">
-        <button id="btn-profile">Switch Profile</button>
-      </div>
-    </aside>
-  </div>
-
-  <section class="event-log">
-    <h3>Event Log</h3>
-    <div id="log-container"></div>
+      <label class="autoscroll"><input type="checkbox" id="ev-autoscroll" checked> 自动滚动</label>
+      <button class="btn ghost small" id="btn-clear-events">清屏</button>
+    </div>
+    <div class="events-body" id="events-body"></div>
   </section>
+
+  <footer class="foot">仿真数据 · 仅供测试 · <span class="mono" id="foot-endpoint"></span></footer>
 </div>
+
+<!-- 卡片模板 -->
+<template id="card-tpl">
+  <article class="card">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="conn-ring" data-el="ring"></span>
+        <span class="cid mono" data-el="cid">-</span>
+        <span class="pill" data-el="conn-pill">-</span>
+        <span class="pill status" data-el="status-pill">-</span>
+        <span class="pill fault hidden" data-el="fault-pill">-</span>
+      </div>
+      <div class="tx mono" data-el="tx"></div>
+    </div>
+
+    <div class="meters">
+      <div class="meter big">
+        <div class="mval mono"><span data-el="power">0.00</span><small> kW</small></div>
+        <div class="mlabel">实时功率</div>
+      </div>
+      <div class="meter big">
+        <div class="mval mono"><span data-el="current">0.0</span><small> A</small></div>
+        <div class="mlabel">实际电流 <span class="dim">/ 目标 <span data-el="target" class="mono">-</span>A</span></div>
+      </div>
+      <div class="meter">
+        <div class="mval mono"><span data-el="energy">0.000</span><small> kWh</small></div>
+        <div class="mlabel">本次电量</div>
+      </div>
+      <div class="meter">
+        <div class="mval mono"><span data-el="voltage">-</span><small> V</small></div>
+        <div class="mlabel">电压 · <span data-el="phase">-</span></div>
+      </div>
+    </div>
+
+    <div class="soc-row">
+      <span class="mlabel">车辆 SOC</span>
+      <div class="soc-bar"><div class="soc-fill" data-el="soc-fill"></div></div>
+      <span class="mono soc-num" data-el="soc">-</span>
+    </div>
+
+    <div class="chart-wrap">
+      <svg class="chart" data-el="chart" viewBox="0 0 560 120" preserveAspectRatio="none"></svg>
+      <div class="chart-legend">
+        <span class="lg lg-power">功率 kW</span>
+        <span class="lg lg-current">电流 A</span>
+        <span class="chart-hint">近 10 分钟</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="btn" data-act="conn">连接</button>
+      <button class="btn primary" data-act="start">▶ 启动充电</button>
+      <button class="btn danger" data-act="stop">■ 停止</button>
+      <div class="ctl-group">
+        <label>限流</label>
+        <input type="range" min="6" max="32" step="1" data-el="limit-slider">
+        <input type="number" min="6" max="32" step="1" class="mono" data-el="limit-num">
+        <button class="btn small" data-act="limit">设定</button>
+      </div>
+      <div class="ctl-group">
+        <label>曲线</label>
+        <select data-el="profile">
+          <option value="default">恒流</option>
+          <option value="ramp_up">爬坡</option>
+        </select>
+      </div>
+      <div class="ctl-group">
+        <label>故障</label>
+        <select data-el="fault">
+          <option value="NoError">无故障</option>
+          <option value="OverCurrentFailure">过流</option>
+          <option value="HighTemperature">高温</option>
+          <option value="GroundFailure">接地故障</option>
+          <option value="EVCommunicationError">车桩通信</option>
+          <option value="InternalError">内部错误</option>
+        </select>
+      </div>
+    </div>
+  </article>
+</template>
 
 <script src="app.js"></script>
 </body>

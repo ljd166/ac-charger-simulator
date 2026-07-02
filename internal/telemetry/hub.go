@@ -38,6 +38,7 @@ type HistoryPoint struct {
 	Timestamp  time.Time `json:"timestamp"`
 	CurrentA   float64   `json:"current_a"`
 	PowerKW    float64   `json:"power_kw"`
+	SOC        float64   `json:"soc"`
 }
 
 // EventRecord 事件记录
@@ -51,6 +52,7 @@ type EventRecord struct {
 // Broadcast 广播消息
 type Broadcast struct {
 	Type      string             `json:"type"`
+	ChargerID string             `json:"charger_id,omitempty"`
 	Telemetry charger.Telemetry  `json:"telemetry,omitempty"`
 	Event     EventRecord        `json:"event,omitempty"`
 	State     GlobalState        `json:"state,omitempty"`
@@ -93,6 +95,7 @@ func (h *Hub) OnTelemetry(id string, snap charger.Telemetry) {
 		Timestamp: snap.Timestamp,
 		CurrentA:  snap.ActualCurrentA,
 		PowerKW:   snap.PowerKW,
+		SOC:       snap.SOC,
 	})
 	if len(points) > h.maxHistory {
 		points = points[len(points)-h.maxHistory:]
@@ -102,6 +105,7 @@ func (h *Hub) OnTelemetry(id string, snap charger.Telemetry) {
 	// 广播
 	h.broadcast(Broadcast{
 		Type:      "telemetry",
+		ChargerID: id,
 		Telemetry: snap,
 	})
 }

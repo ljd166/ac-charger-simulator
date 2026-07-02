@@ -55,6 +55,7 @@ func NewServer(addr string, mgr Manager, hub *telemetry.Hub) *Server {
 	api.HandleFunc("/chargers/{id}/target-current", s.handleTargetCurrent).Methods("POST")
 	api.HandleFunc("/chargers/{id}/fault", s.handleFault).Methods("POST")
 	api.HandleFunc("/chargers/{id}/profile", s.handleProfile).Methods("POST")
+	api.HandleFunc("/chargers/{id}/history", s.handleHistory).Methods("GET")
 	api.HandleFunc("/chargers/all/start", s.handleAllStart).Methods("POST")
 	api.HandleFunc("/chargers/all/stop", s.handleAllStop).Methods("POST")
 	
@@ -275,6 +276,17 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	c.SetProfile(req.Profile)
 	writeJSON(w, http.StatusOK, response{Success: true, Message: "profile set"})
+}
+
+// handleHistory 返回单桩近期遥测历史(图表回填用)
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	if _, ok := s.mgr.GetCharger(id); !ok {
+		writeJSON(w, http.StatusNotFound, response{Success: false, Message: "charger not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: s.hub.History(id)})
 }
 
 func (s *Server) handleAllStart(w http.ResponseWriter, r *http.Request) {
