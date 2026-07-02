@@ -68,6 +68,10 @@ type Charger struct {
 	pendingStartMsgID     string
 	startPending          bool
 
+	// 自动重连(非人为断开后退避重连;CSMS 重启不再永久卡 error)
+	manualStop     bool
+	reconnectDelay time.Duration
+
 	// 事件回调
 	onStateChange func(id string, oldState, newState string)
 	onTelemetry   func(id string, snap Telemetry)
@@ -146,11 +150,40 @@ func (c *Charger) Connect() error {
 		return fmt.Errorf("already connected or connecting")
 	}
 	c.connectionState = Connecting
+	c.manualStop = false
+	c.reconnectDelay = 0
 	c.emitStateChange(Disconnected, Connecting)
 	c.emitEvent("connect", fmt.Sprintf("connecting to %s", c.config.Endpoint))
 
 	go c.run()
 	return nil
+}
+
+// scheduleReconnect 非人为断开后的自动重连(退避 5s→30s)。
+// 解决 CSMS(R3S)重启后模拟桩永久卡在 error 需人工 /connect 的问题。
+func (c *Charger) scheduleReconnect() {
+	c.mu.Lock()
+	if c.reconnectDelay < 5*time.Second {
+		c.reconnectDelay = 5 * time.Second
+	} else if c.reconnectDelay < 30*time.Second {
+		c.reconnectDelay += 5 * time.Second
+	}
+	delay := c.reconnectDelay
+	c.mu.Unlock()
+
+	time.Sleep(delay)
+
+	c.mu.Lock()
+	if c.manualStop || c.connectionState == Connected || c.connectionState == Connecting {
+		c.mu.Unlock()
+		return
+	}
+	oldState := c.connectionState
+	c.connectionState = Connecting
+	c.emitStateChange(oldState, Connecting)
+	c.emitEvent("reconnect", fmt.Sprintf("auto-reconnecting after %v", delay))
+	c.mu.Unlock()
+	go c.run()
 }
 
 // Disconnect 断开连接
@@ -161,6 +194,7 @@ func (c *Charger) Disconnect() {
 }
 
 func (c *Charger) disconnectLocked() {
+	c.manualStop = true // 人为断开:抑制自动重连
 	c.writeMu.Lock()
 	if c.conn != nil {
 		c.conn.Close()
@@ -354,24 +388,40 @@ func (c *Charger) run() {
 		c.connectionState = Error
 		c.emitStateChange(Connecting, Error)
 		c.emitEvent("error", fmt.Sprintf("dial failed: %v", err))
+		manual := c.manualStop
 		c.mu.Unlock()
+		if !manual {
+			go c.scheduleReconnect()
+		}
 		return
 	}
 
 	c.mu.Lock()
 	c.conn = conn
 	c.connectionState = Connected
+	c.reconnectDelay = 0 // 连上即重置退避
 	c.emitStateChange(Connecting, Connected)
 	c.emitEvent("connect", fmt.Sprintf("connected to %s", c.config.Endpoint))
 	hbInterval := c.heartbeatInterval
+	stopCh := c.stopCh // 捕获本连接的 stopCh(重连会替换字段,无锁读字段有 data race)
 	c.mu.Unlock()
 
-	go c.readLoop()
-	go c.writeLoop()
+	go c.readLoop(stopCh)
+	go c.writeLoop(stopCh)
 
 	// 发送 BootNotification
 	c.sendBootNotification()
 	c.sendStatusNotification()
+
+	// 自动重连续联:掉线前在充电 → 重新鉴权并补发 StartTransaction
+	// (CSMS 断线时会关旧会话,不补发则出现"桩在充、CSMS 无会话"的数据失真)
+	c.mu.Lock()
+	if c.status == Charging && !c.startPending {
+		c.startPending = true
+		c.sendAuthorize()
+		c.emitEvent("resume", "reconnected while charging, re-authorizing to resume transaction")
+	}
+	c.mu.Unlock()
 
 	// 定时器
 	hbTicker := time.NewTicker(hbInterval)
@@ -383,7 +433,7 @@ func (c *Charger) run() {
 
 	for {
 		select {
-		case <-c.stopCh:
+		case <-stopCh:
 			return
 		case <-hbTicker.C:
 			c.sendHeartbeat()
@@ -443,10 +493,10 @@ func (c *Charger) run() {
 	}
 }
 
-func (c *Charger) readLoop() {
+func (c *Charger) readLoop(stopCh chan struct{}) {
 	for {
 		select {
-		case <-c.stopCh:
+		case <-stopCh:
 			return
 		default:
 		}
@@ -462,10 +512,28 @@ func (c *Charger) readLoop() {
 				log.Printf("[%s] read error: %v", c.config.ID, err)
 			}
 			c.mu.Lock()
+			if c.manualStop {
+				// 人为断开触发的读错误:状态已由 disconnectLocked 处理,不重连
+				c.mu.Unlock()
+				return
+			}
 			c.connectionState = Error
 			c.emitStateChange(Connected, Error)
 			c.emitEvent("error", fmt.Sprintf("read error: %v", err))
+			// 停掉本连接的 run()/writeLoop,释放旧连接,准备自动重连
+			// (仅当 stopCh 仍是本连接的,避免与并发 Disconnect/重连互踩)
+			if c.stopCh == stopCh {
+				c.writeMu.Lock()
+				if c.conn != nil {
+					c.conn.Close()
+					c.conn = nil
+				}
+				c.writeMu.Unlock()
+				close(c.stopCh)
+				c.stopCh = make(chan struct{})
+			}
 			c.mu.Unlock()
+			go c.scheduleReconnect()
 			return
 		}
 		if msgType != websocket.TextMessage {
@@ -475,10 +543,10 @@ func (c *Charger) readLoop() {
 	}
 }
 
-func (c *Charger) writeLoop() {
+func (c *Charger) writeLoop(stopCh chan struct{}) {
 	for {
 		select {
-		case <-c.stopCh:
+		case <-stopCh:
 			return
 		case msg := <-c.sendCh:
 			c.writeMu.Lock()
