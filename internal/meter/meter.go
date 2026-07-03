@@ -178,6 +178,14 @@ func (m *Model) ResetEnergy() {
 	m.energyKWh = 0
 }
 
+// Touch 重置计时基准。进入/恢复充电时调用:Update 仅在充电时被驱动,
+// 不重置会把空闲/断线间隔一次性计入能量(time_scale 会放大成巨额假电量)。
+func (m *Model) Touch(now time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastUpdate = now
+}
+
 // ZeroFlow 立即归零电流/功率(停充/拔枪;Update 仅在充电时驱动,不归零会残留假功率)
 func (m *Model) ZeroFlow() {
 	m.mu.Lock()

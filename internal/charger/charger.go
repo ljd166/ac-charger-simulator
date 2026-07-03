@@ -494,6 +494,9 @@ func (c *Charger) run() {
 	updateTicker := time.NewTicker(1 * time.Second)
 	defer updateTicker.Stop()
 
+	// meterTicking: 上一 tick 是否处于充电(本连接内);进入充电首 tick 需 Touch 计时基准
+	meterTicking := false
+
 	for {
 		select {
 		case <-stopCh:
@@ -511,6 +514,11 @@ func (c *Charger) run() {
 			now := time.Now()
 			batteryFull := false
 			if c.status == Charging {
+				// 进入充电的首个 tick:重置计时基准,避免把空闲/断线间隔计入能量
+				if !meterTicking {
+					c.meter.Touch(now)
+					meterTicking = true
+				}
 				c.meter.Update(now)
 				ms := c.meter.Snapshot()
 				c.actualCurrentA = ms.ActualCurrentA
@@ -554,6 +562,8 @@ func (c *Charger) run() {
 					c.fullStopSent = true
 					batteryFull = true
 				}
+			} else {
+				meterTicking = false
 			}
 			// 在锁内直接构建快照，避免调用 Snapshot() 导致的 RLock 重入死锁
 			snap := Telemetry{
