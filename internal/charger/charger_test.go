@@ -152,3 +152,28 @@ func TestChargerCallbacks(t *testing.T) {
 		t.Fatal("expected event callback to be triggered")
 	}
 }
+
+// TestChargerSetTargetCurrentSuspendsAndZeroesFlow tests R2-4 W-E:
+// SetTargetCurrent(5) below min threshold → SuspendedEVSE, and current/power = 0.
+func TestChargerSetTargetCurrentSuspendsAndZeroesFlow(t *testing.T) {
+	c := newTestCharger()
+	c.SetTargetCurrent(16) // first set to a normal value
+	if c.Status() != Preparing { // assuming it goes to Preparing when connected
+		// If not connected, status might be Available; let's just test the suspension directly
+	}
+
+	if err := c.SetTargetCurrent(5); err != nil {
+		t.Fatalf("set target current 5: %v", err)
+	}
+	if c.Status() != SuspendedEVSE {
+		t.Fatalf("expected SuspendedEVSE, got %s", c.Status())
+	}
+
+	snap := c.Snapshot()
+	if snap.ActualCurrentA != 0 {
+		t.Fatalf("expected current 0A in snapshot, got %f", snap.ActualCurrentA)
+	}
+	if snap.PowerKW != 0 {
+		t.Fatalf("expected power 0kW in snapshot, got %f", snap.PowerKW)
+	}
+}

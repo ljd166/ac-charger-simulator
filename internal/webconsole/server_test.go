@@ -222,3 +222,35 @@ func TestStartPortInUse(t *testing.T) {
 		t.Fatal("expected error when port is in use")
 	}
 }
+
+// TestHandleAllStartStopRoutes tests R2-4 W-F:
+// POST /api/chargers/all/start|stop must hit the all route, not be treated as an {id}.
+func TestHandleAllStartStopRoutes(t *testing.T) {
+	server, mgr, _ := newTestServer()
+	// Add a second charger so we can verify "all" works on multiple chargers
+	cfg2 := config.ChargerConfig{ID: "all", ConnectorID: 1, Endpoint: "ws://127.0.0.1:9000/ocpp/all", Phase: "single", MaxCurrentA: 32}
+	c2 := charger.NewCharger(cfg2)
+	mgr.chargers[c2.ID()] = c2
+
+	// POST /api/chargers/all/start should return 200 (hit all route, not 404 as unknown id)
+	req := httptest.NewRequest("POST", "/api/chargers/all/start", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+	if w.Code == http.StatusNotFound {
+		t.Fatal("POST /api/chargers/all/start returned 404, expected all route to match")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST /api/chargers/all/start: expected 200, got %d", w.Code)
+	}
+
+	// POST /api/chargers/all/stop should also return 200
+	req2 := httptest.NewRequest("POST", "/api/chargers/all/stop", nil)
+	w2 := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w2, req2)
+	if w2.Code == http.StatusNotFound {
+		t.Fatal("POST /api/chargers/all/stop returned 404, expected all route to match")
+	}
+	if w2.Code != http.StatusOK {
+		t.Fatalf("POST /api/chargers/all/stop: expected 200, got %d", w2.Code)
+	}
+}
