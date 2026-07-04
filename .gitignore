@@ -2,3 +2,8 @@
 /bin/
 *.log
 .DS_Store
+
+# 构建产物不入库(部署走 scp/CI,勿提交平台二进制)
+simulator-linux-arm64
+simulator-*-arm64
+/simulator
