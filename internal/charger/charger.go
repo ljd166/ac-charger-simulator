@@ -414,6 +414,12 @@ func (c *Charger) setStatus(s Status) {
 	if old != s {
 		c.emitEvent("state", fmt.Sprintf("status %s -> %s", old, s))
 	}
+	// W-E: 挂起态归零电流/功率，避免残留假读数
+	if s == SuspendedEVSE || s == SuspendedEV {
+		c.meter.ZeroFlow()
+		c.actualCurrentA = 0
+		c.powerKW = 0
+	}
 }
 
 func (c *Charger) emitStateChange(oldState, newState ConnectionState) {

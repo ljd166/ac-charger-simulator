@@ -48,6 +48,9 @@ func NewServer(addr string, mgr Manager, hub *telemetry.Hub) *Server {
 	api := r.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/state", s.handleState).Methods("GET")
 	api.HandleFunc("/config/ocpp-endpoint", s.handleSetEndpoint).Methods("POST")
+	// W-F: all/start 和 all/stop 必须在 {id} 路由之前注册，避免 all 被当作 id 匹配
+	api.HandleFunc("/chargers/all/start", s.handleAllStart).Methods("POST")
+	api.HandleFunc("/chargers/all/stop", s.handleAllStop).Methods("POST")
 	api.HandleFunc("/chargers/{id}/connect", s.handleConnect).Methods("POST")
 	api.HandleFunc("/chargers/{id}/disconnect", s.handleDisconnect).Methods("POST")
 	api.HandleFunc("/chargers/{id}/start", s.handleStart).Methods("POST")
@@ -57,8 +60,6 @@ func NewServer(addr string, mgr Manager, hub *telemetry.Hub) *Server {
 	api.HandleFunc("/chargers/{id}/profile", s.handleProfile).Methods("POST")
 	api.HandleFunc("/chargers/{id}/history", s.handleHistory).Methods("GET")
 	api.HandleFunc("/chargers/{id}/soc", s.handleSetSOC).Methods("POST")
-	api.HandleFunc("/chargers/all/start", s.handleAllStart).Methods("POST")
-	api.HandleFunc("/chargers/all/stop", s.handleAllStop).Methods("POST")
 	
 	// WebSocket
 	r.HandleFunc("/ws/telemetry", s.handleWebSocket)
